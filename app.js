@@ -206,25 +206,76 @@ function showToast(title, text) {
   }, 7000);
 }
 
+function buildAlertPayload(reading) {
+  return {
+    email: settings.email,
+    decibel: Number(reading.decibel),
+    created_at: reading.created_at,
+    threshold: settings.threshold,
+    source: "cyberpulse-dashboard",
+  };
+}
+
+async function sendEmailThroughEdge(payload) {
+  const { error } = await window.supabaseClient.functions.invoke("send-noise-alert", {
+    body: payload,
+  });
+
+  if (error) throw error;
+}
+
+async function sendEmailThroughWebhook(payload) {
+  if (!config.alertWebhookUrl) {
+    throw new Error("No alertWebhookUrl configured");
+  }
+
+  const response = await fetch(config.alertWebhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Webhook request failed (${response.status})`);
+  }
+}
+
+function openMailtoFallback(payload) {
+  const subject = encodeURIComponent(`Noise alert: ${payload.decibel.toFixed(1)} dB exceeded threshold`);
+  const body = encodeURIComponent(
+    `CyberPulse Noise Alert\n\nDecibel: ${payload.decibel.toFixed(1)} dB\nThreshold: ${payload.threshold} dB\nTime: ${payload.created_at}`
+  );
+  window.open(`mailto:${payload.email}?subject=${subject}&body=${body}`, "_blank");
+}
+
 async function sendEmailAlert(reading) {
   if (!settings.email) return;
 
+  const payload = buildAlertPayload(reading);
+
   try {
-    const { error } = await window.supabaseClient.functions.invoke("send-noise-alert", {
-      body: {
-        email: settings.email,
-        decibel: reading.decibel,
-        created_at: reading.created_at,
-        threshold: settings.threshold,
-      },
-    });
-
-    if (error) throw error;
-
-    showToast("Email Sent", `Alert email dispatched to ${settings.email}.`);
-  } catch (err) {
-    showToast("Email Failed", err.message || "Could not send email notification.");
+    await sendEmailThroughEdge(payload);
+    showToast("Email Sent", `Alert email dispatched to ${settings.email} via Edge Function.`);
+    return;
+  } catch (edgeErr) {
+    console.warn("Edge function email failed, trying workaround", edgeErr);
   }
+
+  try {
+    await sendEmailThroughWebhook(payload);
+    showToast("Webhook Alert Sent", `Edge Function failed, but webhook alert was sent to ${settings.email}.`);
+    return;
+  } catch (webhookErr) {
+    console.warn("Webhook email fallback failed", webhookErr);
+  }
+
+  if (config.useMailtoFallback) {
+    openMailtoFallback(payload);
+    showToast("Manual Email Draft Opened", "Edge/webhook failed, opened mail client draft as workaround.");
+    return;
+  }
+
+  showToast("Email Failed", "Edge function and webhook fallback both failed.");
 }
 
 async function handleIncomingReading(reading) {

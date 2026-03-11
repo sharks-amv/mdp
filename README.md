@@ -8,7 +8,7 @@ A cyberpunk-style dashboard that reads live decibel values from Supabase, shows 
 - Current / average / peak stats for the last 60 readings.
 - Car-style speedometer dial for current dB level (0-180).
 - Popup toast alerts when threshold is exceeded.
-- Email notifications via Supabase Edge Function `send-noise-alert`.
+- Email notifications via Supabase Edge Function `send-noise-alert` with webhook/mailto fallback workaround.
 - Neon cyberpunk visual style.
 
 ## Quick start
@@ -23,14 +23,25 @@ A cyberpunk-style dashboard that reads live decibel values from Supabase, shows 
     supabaseUrl: "https://YOUR-PROJECT.supabase.co",
     supabaseAnonKey: "YOUR-ANON-KEY",
     table: "sound",
+    pollIntervalMs: 3000,
     threshold: 90,
     email: "ops@example.com",
-    emailCooldownMs: 300000
+    emailCooldownMs: 300000,
+    alertWebhookUrl: "https://your-automation-webhook.example",
+    useMailtoFallback: true
   };
 </script>
 ```
 
 Then open `index.html` from any static server.
+
+## Edge function workaround
+If your Supabase Edge Function fails, the dashboard now tries these fallback paths automatically:
+1. POST alert payload to `alertWebhookUrl` (Zapier/Make/n8n/custom endpoint).
+2. Open a prefilled `mailto:` draft (if `useMailtoFallback` is `true`).
+
+This keeps alerting usable even when `send-noise-alert` is unavailable.
+
 
 ## Suggested edge function shape
 Your edge function should accept this body:
