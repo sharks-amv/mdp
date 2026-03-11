@@ -4,6 +4,7 @@ A cyberpunk-style dashboard that reads live decibel values from Supabase, shows 
 
 ## Features
 - Real-time decibel feed from `public.sound` using Supabase Realtime.
+- Continuous Supabase polling (default every 3s) to keep data fresh even if realtime events are delayed.
 - Current / average / peak stats for the last 60 readings.
 - Car-style speedometer dial for current dB level (0-180).
 - Popup toast alerts when threshold is exceeded.

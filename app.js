@@ -35,6 +35,7 @@ const ctx = els.chart.getContext("2d");
 const gaugeCtx = els.gauge.getContext("2d");
 let readings = [];
 let lastAlertTimestamp = 0;
+let lastProcessedReadingId = null;
 
 function drawGauge(value) {
   const { width, height } = els.gauge;
@@ -227,7 +228,16 @@ async function sendEmailAlert(reading) {
 }
 
 async function handleIncomingReading(reading) {
+  if (reading?.id != null && lastProcessedReadingId !== null && Number(reading.id) <= Number(lastProcessedReadingId)) {
+    return;
+  }
+
   readings.push(reading);
+  if (reading?.id != null) {
+    lastProcessedReadingId = Number(reading.id);
+  }
+
+  readings.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   readings = readings.slice(-60);
   els.lastUpdated.textContent = `Updated ${new Date(reading.created_at).toLocaleTimeString()}`;
   updateSummary();
@@ -256,11 +266,51 @@ async function loadInitialData() {
   if (error) throw error;
 
   readings = data || [];
+  if (readings.length) {
+    lastProcessedReadingId = Number(readings[readings.length - 1].id);
+  }
   updateSummary();
   if (readings.length) {
     const latest = readings[readings.length - 1];
     els.lastUpdated.textContent = `Updated ${new Date(latest.created_at).toLocaleTimeString()}`;
   }
+}
+
+async function fetchNewReadings() {
+  let query = window.supabaseClient
+    .from(config.table)
+    .select("id, decibel, created_at")
+    .order("id", { ascending: true })
+    .limit(60);
+
+  if (lastProcessedReadingId !== null) {
+    query = query.gt("id", lastProcessedReadingId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw error;
+  if (!data?.length) return;
+
+  for (const row of data) {
+    await handleIncomingReading(row);
+  }
+}
+
+function startPolling() {
+  const intervalMs = Number(config.pollIntervalMs) > 0 ? Number(config.pollIntervalMs) : 3000;
+
+  setInterval(async () => {
+    try {
+      await fetchNewReadings();
+      els.connectionStatus.textContent = "Live + Polling";
+      els.connectionStatus.style.color = "#40fff2";
+    } catch (err) {
+      els.connectionStatus.textContent = "Polling issue";
+      els.connectionStatus.style.color = "#ffd6df";
+      console.error("Polling error", err);
+    }
+  }, intervalMs);
 }
 
 function saveSettings() {
@@ -286,7 +336,9 @@ async function init() {
 
   try {
     await loadInitialData();
-    els.connectionStatus.textContent = "Live";
+    els.connectionStatus.textContent = "Live + Polling";
+
+    startPolling();
 
     window.supabaseClient
       .channel("db-realtime")
