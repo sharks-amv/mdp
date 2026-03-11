@@ -23,7 +23,6 @@ A cyberpunk-style dashboard that reads live decibel values from Supabase, shows 
     supabaseUrl: "https://YOUR-PROJECT.supabase.co",
     supabaseAnonKey: "YOUR-ANON-KEY",
     table: "sound",
-    pollIntervalMs: 3000,
     threshold: 90,
     email: "ops@example.com",
     emailCooldownMs: 300000
