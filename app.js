@@ -1,6 +1,6 @@
 const defaultConfig = {
-  supabaseUrl: "YOUR_SUPABASE_URL",
-  supabaseAnonKey: "YOUR_SUPABASE_ANON_KEY",
+  supabaseUrl: "https://jdkbbkptgnotnbkrhleu.supabase.co",
+  supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impka2Jia3B0Z25vdG5ia3JobGV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3NDQzODMsImV4cCI6MjA4NjMyMDM4M30.GQaCQW7GiQkDUUXiBHqxfdrcngveHdJgXqRrzkppJQI",
   table: "sound",
   pollIntervalMs: 3000,
   threshold: 90,
