@@ -28,7 +28,8 @@ A cyberpunk-style dashboard that reads live decibel values from Supabase, shows 
     email: "ops@example.com",
     emailCooldownMs: 300000,
     alertWebhookUrl: "https://your-automation-webhook.example",
-    useMailtoFallback: true
+    useMailtoFallback: true,
+    queueFailedAlerts: true
   };
 </script>
 ```
@@ -38,9 +39,11 @@ Then open `index.html` from any static server.
 ## Edge function workaround
 If your Supabase Edge Function fails, the dashboard now tries these fallback paths automatically:
 1. POST alert payload to `alertWebhookUrl` (Zapier/Make/n8n/custom endpoint).
-2. Open a prefilled `mailto:` draft (if `useMailtoFallback` is `true`).
+2. Copy alert text to clipboard when possible.
+3. Open a prefilled `mailto:` draft (if `useMailtoFallback` is `true`).
+4. Download a `.eml` file + queue alert payload in localStorage (`failedAlertQueue`) for manual resend if everything remote fails.
 
-This keeps alerting usable even when `send-noise-alert` is unavailable.
+This keeps alerting usable even when `send-noise-alert` and webhook routes are unavailable.
 
 
 ## Suggested edge function shape

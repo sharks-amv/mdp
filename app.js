@@ -1,10 +1,14 @@
 const defaultConfig = {
-  supabaseUrl: "https://jdkbbkptgnotnbkrhleu.supabase.co",
-  supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impka2Jia3B0Z25vdG5ia3JobGV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3NDQzODMsImV4cCI6MjA4NjMyMDM4M30.GQaCQW7GiQkDUUXiBHqxfdrcngveHdJgXqRrzkppJQI",
+  supabaseUrl: "YOUR_SUPABASE_URL",
+  supabaseAnonKey: "YOUR_SUPABASE_ANON_KEY",
   table: "sound",
+  pollIntervalMs: 3000,
   threshold: 90,
   email: "",
   emailCooldownMs: 5 * 60 * 1000,
+  alertWebhookUrl: "",
+  useMailtoFallback: true,
+  queueFailedAlerts: true,
 };
 
 const envConfig = window.CYBERPULSE_CONFIG || {};
@@ -240,11 +244,55 @@ async function sendEmailThroughWebhook(payload) {
   }
 }
 
+function buildAlertMessage(payload) {
+  return `CyberPulse Noise Alert
+
+Decibel: ${payload.decibel.toFixed(1)} dB
+Threshold: ${payload.threshold} dB
+Time: ${payload.created_at}`;
+}
+
+function queueFailedAlert(payload) {
+  if (!config.queueFailedAlerts) return;
+
+  const key = "failedAlertQueue";
+  const queue = JSON.parse(localStorage.getItem(key) || "[]");
+  queue.unshift({ ...payload, queued_at: new Date().toISOString() });
+  localStorage.setItem(key, JSON.stringify(queue.slice(0, 100)));
+}
+
+async function copyAlertToClipboard(payload) {
+  const msg = buildAlertMessage(payload);
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(msg);
+    return true;
+  }
+  return false;
+}
+
+function downloadEmlFallback(payload) {
+  const subject = `Noise alert: ${payload.decibel.toFixed(1)} dB exceeded threshold`;
+  const eml = [
+    `To: ${payload.email}`,
+    `Subject: ${subject}`,
+    "MIME-Version: 1.0",
+    "Content-Type: text/plain; charset=utf-8",
+    "",
+    buildAlertMessage(payload),
+  ].join("\n");
+
+  const blob = new Blob([eml], { type: "message/rfc822" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `cyberpulse-alert-${Date.now()}.eml`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function openMailtoFallback(payload) {
   const subject = encodeURIComponent(`Noise alert: ${payload.decibel.toFixed(1)} dB exceeded threshold`);
-  const body = encodeURIComponent(
-    `CyberPulse Noise Alert\n\nDecibel: ${payload.decibel.toFixed(1)} dB\nThreshold: ${payload.threshold} dB\nTime: ${payload.created_at}`
-  );
+  const body = encodeURIComponent(buildAlertMessage(payload));
   window.open(`mailto:${payload.email}?subject=${subject}&body=${body}`, "_blank");
 }
 
@@ -269,13 +317,23 @@ async function sendEmailAlert(reading) {
     console.warn("Webhook email fallback failed", webhookErr);
   }
 
-  if (config.useMailtoFallback) {
-    openMailtoFallback(payload);
-    showToast("Manual Email Draft Opened", "Edge/webhook failed, opened mail client draft as workaround.");
-    return;
+  queueFailedAlert(payload);
+
+  try {
+    const copied = await copyAlertToClipboard(payload);
+    if (copied) {
+      showToast("Copied Alert", "Edge/webhook failed. Alert text copied to clipboard.");
+    }
+  } catch (clipboardErr) {
+    console.warn("Clipboard fallback failed", clipboardErr);
   }
 
-  showToast("Email Failed", "Edge function and webhook fallback both failed.");
+  if (config.useMailtoFallback) {
+    openMailtoFallback(payload);
+  }
+
+  downloadEmlFallback(payload);
+  showToast("Fallback Created", "Edge/webhook failed. Downloaded .eml + queued alert locally.");
 }
 
 async function handleIncomingReading(reading) {
