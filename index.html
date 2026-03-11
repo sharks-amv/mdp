@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CyberPulse dB Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Orbitron:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  </head>
+  <body>
+    <div class="grid-bg"></div>
+    <main class="dashboard">
+      <header class="hero panel">
+        <div>
+          <p class="eyebrow">LIVE ACOUSTIC TELEMETRY</p>
+          <h1>CyberPulse Decibel Dashboard</h1>
+          <p class="subtitle">
+            Real-time dB insights from Supabase with instant popup + email alerts.
+          </p>
+        </div>
+        <div class="status-pill" id="connectionStatus">Connecting…</div>
+      </header>
+
+      <section class="cards">
+        <article class="panel metric">
+          <h2>Current</h2>
+          <p id="currentDb">-- dB</p>
+        </article>
+        <article class="panel metric">
+          <h2>Average (last 60)</h2>
+          <p id="avgDb">-- dB</p>
+        </article>
+        <article class="panel metric">
+          <h2>Peak</h2>
+          <p id="peakDb">-- dB</p>
+        </article>
+      </section>
+
+      <section class="panel gauge-panel">
+        <div class="panel-title-row">
+          <h2>Noise Speedometer</h2>
+          <span>0 - 180 dB</span>
+        </div>
+        <canvas id="dbGauge" width="1100" height="260"></canvas>
+      </section>
+
+      <section class="panel chart-panel">
+        <div class="panel-title-row">
+          <h2>Signal Timeline</h2>
+          <span id="lastUpdated">Waiting for data…</span>
+        </div>
+        <canvas id="dbChart" width="1100" height="320"></canvas>
+      </section>
+
+      <section class="panel controls">
+        <h2>Alert Controls</h2>
+        <div class="control-grid">
+          <label>
+            dB Threshold
+            <input id="thresholdInput" type="number" min="1" max="180" value="90" />
+          </label>
+          <label>
+            Alert Email
+            <input id="emailInput" type="email" placeholder="ops@example.com" />
+          </label>
+          <button id="saveSettings">Save Settings</button>
+        </div>
+        <p class="hint">Email alerts are sent via Supabase Edge Function <code>send-noise-alert</code>.</p>
+      </section>
+    </main>
+
+    <section id="toastContainer" aria-live="polite" aria-label="notifications"></section>
+
+    <script src="app.js"></script>
+  </body>
+</html>
