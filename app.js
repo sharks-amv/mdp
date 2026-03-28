@@ -69,6 +69,14 @@ const gaugeCtx = els.gauge.getContext("2d");
 let readings = [];
 const ruleLastAlertTimestamps = {};
 let lastProcessedReadingId = null;
+let animatedGaugeValue = null;
+let gaugeAnimationFrame = null;
+
+function getDisplayThreshold() {
+  const enabledRules = settings.rules.filter((rule) => rule.enabled);
+  if (!enabledRules.length) return Number(config.threshold);
+  return Math.min(...enabledRules.map((rule) => Number(rule.threshold || config.threshold)));
+}
 
 function getDisplayThreshold() {
   const enabledRules = settings.rules.filter((rule) => rule.enabled);
@@ -165,6 +173,51 @@ function drawGauge(value) {
   gaugeCtx.fillText(`${clamped.toFixed(1)} dB`, centerX, centerY - 55);
 }
 
+function cancelGaugeAnimation() {
+  if (gaugeAnimationFrame !== null) {
+    cancelAnimationFrame(gaugeAnimationFrame);
+    gaugeAnimationFrame = null;
+  }
+}
+
+function animateGaugeTo(target) {
+  if (typeof target !== "number") {
+    cancelGaugeAnimation();
+    animatedGaugeValue = null;
+    drawGauge();
+    return;
+  }
+
+  const clampedTarget = Math.max(0, Math.min(Number(target), 180));
+  if (animatedGaugeValue === null || Number.isNaN(animatedGaugeValue)) {
+    animatedGaugeValue = 0;
+  }
+
+  cancelGaugeAnimation();
+
+  const startValue = animatedGaugeValue;
+  const delta = clampedTarget - startValue;
+  const durationMs = Math.min(900, Math.max(280, Math.abs(delta) * 12));
+  const startTs = performance.now();
+
+  const tick = (ts) => {
+    const t = Math.min((ts - startTs) / durationMs, 1);
+    const eased = 1 - ((1 - t) ** 3);
+    animatedGaugeValue = startValue + (delta * eased);
+    drawGauge(animatedGaugeValue);
+
+    if (t < 1) {
+      gaugeAnimationFrame = requestAnimationFrame(tick);
+    } else {
+      animatedGaugeValue = clampedTarget;
+      gaugeAnimationFrame = null;
+      drawGauge(animatedGaugeValue);
+    }
+  };
+
+  gaugeAnimationFrame = requestAnimationFrame(tick);
+}
+
 function drawChart(values) {
   const { width, height } = els.chart;
   ctx.clearRect(0, 0, width, height);
@@ -221,7 +274,7 @@ function updateSummary() {
     els.currentDb.textContent = "-- dB";
     els.avgDb.textContent = "-- dB";
     els.peakDb.textContent = "-- dB";
-    drawGauge();
+    animateGaugeTo();
     return;
   }
 
@@ -233,7 +286,7 @@ function updateSummary() {
   els.currentDb.textContent = `${current.toFixed(1)} dB`;
   els.avgDb.textContent = `${average.toFixed(1)} dB`;
   els.peakDb.textContent = `${peak.toFixed(1)} dB`;
-  drawGauge(current);
+  animateGaugeTo(current);
   drawChart(values);
 }
 
