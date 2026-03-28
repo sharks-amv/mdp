@@ -78,6 +78,12 @@ function getDisplayThreshold() {
   return Math.min(...enabledRules.map((rule) => Number(rule.threshold || config.threshold)));
 }
 
+function getDisplayThreshold() {
+  const enabledRules = settings.rules.filter((rule) => rule.enabled);
+  if (!enabledRules.length) return Number(config.threshold);
+  return Math.min(...enabledRules.map((rule) => Number(rule.threshold || config.threshold)));
+}
+
 function drawGauge(value) {
   const { width, height } = els.gauge;
   const centerX = width / 2;
@@ -324,15 +330,9 @@ function getRuleActiveThreshold(rule, now = new Date()) {
   return Number(rule.threshold);
 }
 
-function getRuleRecipientEmail(rule) {
-  const candidate = String(rule?.email || config.email || "").trim();
-  return candidate;
-}
-
 function buildAlertPayload(reading, rule, activeThreshold) {
-  const recipientEmail = getRuleRecipientEmail(rule);
   return {
-    email: recipientEmail,
+    email: rule.email,
     decibel: Number(reading.decibel),
     created_at: reading.created_at,
     threshold: activeThreshold,
@@ -420,17 +420,13 @@ function openMailtoFallback(payload) {
 }
 
 async function sendEmailAlert(reading, rule, activeThreshold) {
-  const recipientEmail = getRuleRecipientEmail(rule);
-  if (!recipientEmail) {
-    showToast("Email Missing", `${rule.name}: set an alert email to send notifications.`);
-    return false;
-  }
+  if (!rule.email) return false;
 
   const payload = buildAlertPayload(reading, rule, activeThreshold);
 
   try {
     await sendEmailThroughEdge(payload);
-    showToast("Email Sent", `${rule.name}: alert sent to ${recipientEmail} via Edge Function.`);
+    showToast("Email Sent", `${rule.name}: alert sent to ${rule.email} via Edge Function.`);
     return true;
   } catch (edgeErr) {
     console.warn("Edge function email failed, trying workaround", edgeErr);
@@ -438,7 +434,7 @@ async function sendEmailAlert(reading, rule, activeThreshold) {
 
   try {
     await sendEmailThroughWebhook(payload);
-    showToast("Webhook Alert Sent", `${rule.name}: webhook alert sent to ${recipientEmail}.`);
+    showToast("Webhook Alert Sent", `${rule.name}: webhook alert sent to ${rule.email}.`);
     return true;
   } catch (webhookErr) {
     console.warn("Webhook email fallback failed", webhookErr);
