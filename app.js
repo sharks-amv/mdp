@@ -87,10 +87,10 @@ function getDisplayThreshold() {
 function drawGauge(value) {
   const { width, height } = els.gauge;
   const centerX = width / 2;
-  const centerY = height - 22;
-  const radius = Math.min(width * 0.35, height * 0.85);
+  const centerY = height - 10;
+  const radius = Math.min(width * 0.35, height * 0.78);
   const startAngle = Math.PI;
-  const endAngle = 0;
+  const endAngle = Math.PI * 2;
 
   gaugeCtx.clearRect(0, 0, width, height);
 
