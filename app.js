@@ -297,14 +297,14 @@ function openMailtoFallback(payload) {
 }
 
 async function sendEmailAlert(reading) {
-  if (!settings.email) return;
+  if (!settings.email) return false;
 
   const payload = buildAlertPayload(reading);
 
   try {
     await sendEmailThroughEdge(payload);
     showToast("Email Sent", `Alert email dispatched to ${settings.email} via Edge Function.`);
-    return;
+    return true;
   } catch (edgeErr) {
     console.warn("Edge function email failed, trying workaround", edgeErr);
   }
@@ -312,7 +312,7 @@ async function sendEmailAlert(reading) {
   try {
     await sendEmailThroughWebhook(payload);
     showToast("Webhook Alert Sent", `Edge Function failed, but webhook alert was sent to ${settings.email}.`);
-    return;
+    return true;
   } catch (webhookErr) {
     console.warn("Webhook email fallback failed", webhookErr);
   }
@@ -334,6 +334,7 @@ async function sendEmailAlert(reading) {
 
   downloadEmlFallback(payload);
   showToast("Fallback Created", "Edge/webhook failed. Downloaded .eml + queued alert locally.");
+  return true;
 }
 
 async function handleIncomingReading(reading) {
@@ -359,8 +360,10 @@ async function handleIncomingReading(reading) {
 
     const now = Date.now();
     if (now - lastAlertTimestamp > config.emailCooldownMs) {
-      lastAlertTimestamp = now;
-      await sendEmailAlert(reading);
+      const notificationSent = await sendEmailAlert(reading);
+      if (notificationSent) {
+        lastAlertTimestamp = now;
+      }
     }
   }
 }
