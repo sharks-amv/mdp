@@ -8,6 +8,8 @@ A cyberpunk-style dashboard that reads live decibel values from Supabase, shows 
 - Current / average / peak stats for the last 60 readings.
 - Car-style speedometer dial for current dB level (0-180).
 - Popup toast alerts when threshold is exceeded.
+- Multi-rule alerts (per-rule threshold, cooldown, recipient, enable/disable).
+- Quiet-hour overrides per rule (custom time window + alternate threshold).
 - Email notifications via Supabase Edge Function `send-noise-alert` with webhook/mailto fallback workaround.
 - Neon cyberpunk visual style.
 
@@ -44,6 +46,14 @@ If your Supabase Edge Function fails, the dashboard now tries these fallback pat
 4. Download a `.eml` file + queue alert payload in localStorage (`failedAlertQueue`) for manual resend if everything remote fails.
 
 This keeps alerting usable even when `send-noise-alert` and webhook routes are unavailable.
+
+## Multi-rule + quiet hours
+Use the Alert Controls panel to define multiple alert rules. Each rule supports:
+- Name + recipient email
+- Base decibel threshold
+- Per-rule cooldown in milliseconds
+- Optional quiet hours (`start`, `end`) with a separate threshold
+- Enable/disable toggle
 
 
 ## Suggested edge function shape

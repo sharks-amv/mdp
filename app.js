@@ -19,27 +19,64 @@ const els = {
   avgDb: document.getElementById("avgDb"),
   peakDb: document.getElementById("peakDb"),
   lastUpdated: document.getElementById("lastUpdated"),
-  thresholdInput: document.getElementById("thresholdInput"),
-  emailInput: document.getElementById("emailInput"),
-  saveSettings: document.getElementById("saveSettings"),
+  addRuleBtn: document.getElementById("addRuleBtn"),
+  rulesContainer: document.getElementById("rulesContainer"),
   toastContainer: document.getElementById("toastContainer"),
   connectionStatus: document.getElementById("connectionStatus"),
   chart: document.getElementById("dbChart"),
   gauge: document.getElementById("dbGauge"),
 };
 
+function createRule(seed = {}) {
+  return {
+    id: seed.id || `rule-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    name: seed.name || "Noise Alert",
+    enabled: seed.enabled ?? true,
+    threshold: Number(seed.threshold ?? config.threshold),
+    email: seed.email ?? config.email,
+    cooldownMs: Number(seed.cooldownMs ?? config.emailCooldownMs),
+    quietEnabled: seed.quietEnabled ?? false,
+    quietStart: seed.quietStart || "22:00",
+    quietEnd: seed.quietEnd || "07:00",
+    quietThreshold: Number(seed.quietThreshold ?? config.threshold),
+  };
+}
+
+function loadRules() {
+  const savedRules = JSON.parse(localStorage.getItem("alertRules") || "null");
+  if (Array.isArray(savedRules) && savedRules.length) {
+    return savedRules.map((rule) => createRule(rule));
+  }
+
+  const legacyThreshold = Number(localStorage.getItem("dbThreshold") || config.threshold);
+  const legacyEmail = localStorage.getItem("alertEmail") || config.email;
+  return [
+    createRule({
+      name: "Primary Alert",
+      threshold: legacyThreshold,
+      email: legacyEmail,
+      cooldownMs: config.emailCooldownMs,
+    }),
+  ];
+}
+
 const settings = {
-  threshold: Number(localStorage.getItem("dbThreshold") || config.threshold),
-  email: localStorage.getItem("alertEmail") || config.email,
+  rules: loadRules(),
 };
-els.thresholdInput.value = settings.threshold;
-els.emailInput.value = settings.email;
 
 const ctx = els.chart.getContext("2d");
 const gaugeCtx = els.gauge.getContext("2d");
 let readings = [];
-let lastAlertTimestamp = 0;
+const ruleLastAlertTimestamps = {};
 let lastProcessedReadingId = null;
+let animatedGaugeValue = null;
+let gaugeAnimationFrame = null;
+
+function getDisplayThreshold() {
+  const enabledRules = settings.rules.filter((rule) => rule.enabled);
+  if (!enabledRules.length) return Number(config.threshold);
+  return Math.min(...enabledRules.map((rule) => Number(rule.threshold || config.threshold)));
+}
 
 function drawGauge(value) {
   const { width, height } = els.gauge;
@@ -59,7 +96,8 @@ function drawGauge(value) {
   gaugeCtx.stroke();
 
   // safe zone arc
-  const thresholdAngle = startAngle + ((Math.min(settings.threshold, 180) / 180) * (endAngle - startAngle));
+  const displayThreshold = getDisplayThreshold();
+  const thresholdAngle = startAngle + ((Math.min(displayThreshold, 180) / 180) * (endAngle - startAngle));
   gaugeCtx.strokeStyle = "rgba(64,255,242,0.55)";
   gaugeCtx.beginPath();
   gaugeCtx.arc(centerX, centerY, radius, startAngle, thresholdAngle, false);
@@ -108,7 +146,7 @@ function drawGauge(value) {
   gaugeCtx.save();
   gaugeCtx.translate(centerX, centerY);
   gaugeCtx.rotate(angle);
-  gaugeCtx.fillStyle = clamped >= settings.threshold ? "#ff4d6d" : "#40fff2";
+  gaugeCtx.fillStyle = clamped >= displayThreshold ? "#ff4d6d" : "#40fff2";
   gaugeCtx.beginPath();
   gaugeCtx.moveTo(-7, 0);
   gaugeCtx.lineTo(0, -8);
@@ -124,9 +162,54 @@ function drawGauge(value) {
   gaugeCtx.fill();
 
   gaugeCtx.font = "600 26px Orbitron";
-  gaugeCtx.fillStyle = clamped >= settings.threshold ? "#ffd6df" : "#40fff2";
+  gaugeCtx.fillStyle = clamped >= displayThreshold ? "#ffd6df" : "#40fff2";
   gaugeCtx.textAlign = "center";
   gaugeCtx.fillText(`${clamped.toFixed(1)} dB`, centerX, centerY - 55);
+}
+
+function cancelGaugeAnimation() {
+  if (gaugeAnimationFrame !== null) {
+    cancelAnimationFrame(gaugeAnimationFrame);
+    gaugeAnimationFrame = null;
+  }
+}
+
+function animateGaugeTo(target) {
+  if (typeof target !== "number") {
+    cancelGaugeAnimation();
+    animatedGaugeValue = null;
+    drawGauge();
+    return;
+  }
+
+  const clampedTarget = Math.max(0, Math.min(Number(target), 180));
+  if (animatedGaugeValue === null || Number.isNaN(animatedGaugeValue)) {
+    animatedGaugeValue = 0;
+  }
+
+  cancelGaugeAnimation();
+
+  const startValue = animatedGaugeValue;
+  const delta = clampedTarget - startValue;
+  const durationMs = Math.min(900, Math.max(280, Math.abs(delta) * 12));
+  const startTs = performance.now();
+
+  const tick = (ts) => {
+    const t = Math.min((ts - startTs) / durationMs, 1);
+    const eased = 1 - ((1 - t) ** 3);
+    animatedGaugeValue = startValue + (delta * eased);
+    drawGauge(animatedGaugeValue);
+
+    if (t < 1) {
+      gaugeAnimationFrame = requestAnimationFrame(tick);
+    } else {
+      animatedGaugeValue = clampedTarget;
+      gaugeAnimationFrame = null;
+      drawGauge(animatedGaugeValue);
+    }
+  };
+
+  gaugeAnimationFrame = requestAnimationFrame(tick);
 }
 
 function drawChart(values) {
@@ -140,8 +223,9 @@ function drawChart(values) {
     return;
   }
 
-  const min = Math.min(...values, settings.threshold - 12);
-  const max = Math.max(...values, settings.threshold + 12);
+  const displayThreshold = getDisplayThreshold();
+  const min = Math.min(...values, displayThreshold - 12);
+  const max = Math.max(...values, displayThreshold + 12);
   const range = Math.max(max - min, 10);
   const pad = 20;
 
@@ -155,7 +239,7 @@ function drawChart(values) {
     ctx.stroke();
   }
 
-  const thresholdY = height - pad - ((settings.threshold - min) / range) * (height - pad * 2);
+  const thresholdY = height - pad - ((displayThreshold - min) / range) * (height - pad * 2);
   ctx.strokeStyle = "rgba(255,46,166,0.75)";
   ctx.setLineDash([8, 6]);
   ctx.beginPath();
@@ -184,7 +268,7 @@ function updateSummary() {
     els.currentDb.textContent = "-- dB";
     els.avgDb.textContent = "-- dB";
     els.peakDb.textContent = "-- dB";
-    drawGauge();
+    animateGaugeTo();
     return;
   }
 
@@ -196,7 +280,7 @@ function updateSummary() {
   els.currentDb.textContent = `${current.toFixed(1)} dB`;
   els.avgDb.textContent = `${average.toFixed(1)} dB`;
   els.peakDb.textContent = `${peak.toFixed(1)} dB`;
-  drawGauge(current);
+  animateGaugeTo(current);
   drawChart(values);
 }
 
@@ -210,12 +294,45 @@ function showToast(title, text) {
   }, 7000);
 }
 
-function buildAlertPayload(reading) {
+function persistRules() {
+  localStorage.setItem("alertRules", JSON.stringify(settings.rules));
+}
+
+function minutesFromHHMM(hhmm) {
+  const [h, m] = String(hhmm || "00:00").split(":").map((v) => Number(v) || 0);
+  return (h * 60) + m;
+}
+
+function isNowInQuietHours(rule, now = new Date()) {
+  if (!rule.quietEnabled) return false;
+
+  const start = minutesFromHHMM(rule.quietStart);
+  const end = minutesFromHHMM(rule.quietEnd);
+  const current = (now.getHours() * 60) + now.getMinutes();
+
+  if (start === end) return true;
+  if (start < end) {
+    return current >= start && current < end;
+  }
+  return current >= start || current < end;
+}
+
+function getRuleActiveThreshold(rule, now = new Date()) {
+  if (isNowInQuietHours(rule, now)) {
+    return Number(rule.quietThreshold || rule.threshold);
+  }
+  return Number(rule.threshold);
+}
+
+function buildAlertPayload(reading, rule, activeThreshold) {
   return {
-    email: settings.email,
+    email: rule.email,
     decibel: Number(reading.decibel),
     created_at: reading.created_at,
-    threshold: settings.threshold,
+    threshold: activeThreshold,
+    rule_id: rule.id,
+    rule_name: rule.name,
+    quiet_hours_active: isNowInQuietHours(rule),
     source: "cyberpulse-dashboard",
   };
 }
@@ -296,23 +413,23 @@ function openMailtoFallback(payload) {
   window.open(`mailto:${payload.email}?subject=${subject}&body=${body}`, "_blank");
 }
 
-async function sendEmailAlert(reading) {
-  if (!settings.email) return;
+async function sendEmailAlert(reading, rule, activeThreshold) {
+  if (!rule.email) return false;
 
-  const payload = buildAlertPayload(reading);
+  const payload = buildAlertPayload(reading, rule, activeThreshold);
 
   try {
     await sendEmailThroughEdge(payload);
-    showToast("Email Sent", `Alert email dispatched to ${settings.email} via Edge Function.`);
-    return;
+    showToast("Email Sent", `${rule.name}: alert sent to ${rule.email} via Edge Function.`);
+    return true;
   } catch (edgeErr) {
     console.warn("Edge function email failed, trying workaround", edgeErr);
   }
 
   try {
     await sendEmailThroughWebhook(payload);
-    showToast("Webhook Alert Sent", `Edge Function failed, but webhook alert was sent to ${settings.email}.`);
-    return;
+    showToast("Webhook Alert Sent", `${rule.name}: webhook alert sent to ${rule.email}.`);
+    return true;
   } catch (webhookErr) {
     console.warn("Webhook email fallback failed", webhookErr);
   }
@@ -334,6 +451,79 @@ async function sendEmailAlert(reading) {
 
   downloadEmlFallback(payload);
   showToast("Fallback Created", "Edge/webhook failed. Downloaded .eml + queued alert locally.");
+  return true;
+}
+
+function updateRuleFromInput(event) {
+  const { ruleId, field } = event.target.dataset;
+  const rule = settings.rules.find((item) => item.id === ruleId);
+  if (!rule) return;
+
+  if (event.target.type === "checkbox") {
+    rule[field] = event.target.checked;
+  } else if (["threshold", "quietThreshold", "cooldownMs"].includes(field)) {
+    rule[field] = Number(event.target.value || 0);
+  } else {
+    rule[field] = event.target.value;
+  }
+
+  persistRules();
+  updateSummary();
+}
+
+function renderRules() {
+  els.rulesContainer.innerHTML = "";
+
+  settings.rules.forEach((rule) => {
+    const card = document.createElement("article");
+    card.className = "rule-card";
+    card.innerHTML = `
+      <div class="rule-row">
+        <span class="rule-title">${rule.name || "Noise Alert"}</span>
+        <button class="rule-delete" type="button" data-action="delete-rule" data-rule-id="${rule.id}">Delete</button>
+      </div>
+      <div class="rule-grid">
+        <label>
+          Rule name
+          <input type="text" data-field="name" data-rule-id="${rule.id}" value="${rule.name}" />
+        </label>
+        <label>
+          Alert email
+          <input type="email" data-field="email" data-rule-id="${rule.id}" value="${rule.email || ""}" placeholder="ops@example.com" />
+        </label>
+        <label>
+          Threshold (dB)
+          <input type="number" min="1" max="180" data-field="threshold" data-rule-id="${rule.id}" value="${rule.threshold}" />
+        </label>
+        <label>
+          Cooldown (ms)
+          <input type="number" min="0" step="1000" data-field="cooldownMs" data-rule-id="${rule.id}" value="${rule.cooldownMs}" />
+        </label>
+        <label>
+          Quiet hours enabled
+          <input type="checkbox" data-field="quietEnabled" data-rule-id="${rule.id}" ${rule.quietEnabled ? "checked" : ""} />
+        </label>
+        <label>
+          Quiet start
+          <input type="time" data-field="quietStart" data-rule-id="${rule.id}" value="${rule.quietStart}" />
+        </label>
+        <label>
+          Quiet end
+          <input type="time" data-field="quietEnd" data-rule-id="${rule.id}" value="${rule.quietEnd}" />
+        </label>
+        <label>
+          Quiet threshold (dB)
+          <input type="number" min="1" max="180" data-field="quietThreshold" data-rule-id="${rule.id}" value="${rule.quietThreshold}" />
+        </label>
+        <label>
+          Rule enabled
+          <input type="checkbox" data-field="enabled" data-rule-id="${rule.id}" ${rule.enabled ? "checked" : ""} />
+        </label>
+      </div>
+    `;
+
+    els.rulesContainer.appendChild(card);
+  });
 }
 
 async function handleIncomingReading(reading) {
@@ -351,16 +541,26 @@ async function handleIncomingReading(reading) {
   els.lastUpdated.textContent = `Updated ${new Date(reading.created_at).toLocaleTimeString()}`;
   updateSummary();
 
-  if (reading.decibel >= settings.threshold) {
+  for (const rule of settings.rules) {
+    if (!rule.enabled) continue;
+
+    const activeThreshold = getRuleActiveThreshold(rule);
+    if (Number(reading.decibel) < activeThreshold) continue;
+
     showToast(
       "Noise Threshold Exceeded",
-      `${reading.decibel.toFixed(1)} dB crossed your ${settings.threshold} dB limit.`
+      `${rule.name}: ${Number(reading.decibel).toFixed(1)} dB crossed ${activeThreshold} dB${isNowInQuietHours(rule) ? " (quiet hours)" : ""}.`
     );
 
     const now = Date.now();
-    if (now - lastAlertTimestamp > config.emailCooldownMs) {
-      lastAlertTimestamp = now;
-      await sendEmailAlert(reading);
+    const lastRuleAlertTimestamp = Number(ruleLastAlertTimestamps[rule.id] || 0);
+    if (now - lastRuleAlertTimestamp <= Number(rule.cooldownMs || config.emailCooldownMs)) {
+      continue;
+    }
+
+    const notificationSent = await sendEmailAlert(reading, rule, activeThreshold);
+    if (notificationSent) {
+      ruleLastAlertTimestamps[rule.id] = now;
     }
   }
 }
@@ -422,15 +622,6 @@ function startPolling() {
   }, intervalMs);
 }
 
-function saveSettings() {
-  settings.threshold = Number(els.thresholdInput.value || config.threshold);
-  settings.email = els.emailInput.value.trim();
-  localStorage.setItem("dbThreshold", String(settings.threshold));
-  localStorage.setItem("alertEmail", settings.email);
-  showToast("Settings Saved", "Alert settings have been updated.");
-  updateSummary();
-}
-
 async function init() {
   if (config.supabaseUrl.includes("YOUR_SUPABASE") || config.supabaseAnonKey.includes("YOUR_SUPABASE")) {
     els.connectionStatus.textContent = "Set Supabase credentials in CYBERPULSE_CONFIG";
@@ -444,6 +635,7 @@ async function init() {
   window.supabaseClient = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
 
   try {
+    renderRules();
     await loadInitialData();
     els.connectionStatus.textContent = "Live + Polling";
 
@@ -464,5 +656,31 @@ async function init() {
   }
 }
 
-els.saveSettings.addEventListener("click", saveSettings);
+els.addRuleBtn.addEventListener("click", () => {
+  settings.rules.push(createRule({ name: `Rule ${settings.rules.length + 1}` }));
+  persistRules();
+  renderRules();
+  updateSummary();
+});
+
+els.rulesContainer.addEventListener("input", (event) => {
+  if (!event.target.dataset?.field) return;
+  updateRuleFromInput(event);
+});
+
+els.rulesContainer.addEventListener("change", (event) => {
+  if (!event.target.dataset?.field) return;
+  updateRuleFromInput(event);
+});
+
+els.rulesContainer.addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-action='delete-rule']");
+  if (!btn) return;
+
+  settings.rules = settings.rules.filter((rule) => rule.id !== btn.dataset.ruleId);
+  persistRules();
+  renderRules();
+  updateSummary();
+});
+
 window.addEventListener("DOMContentLoaded", init);
