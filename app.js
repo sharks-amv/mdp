@@ -5,10 +5,6 @@ const defaultConfig = {
   pollIntervalMs: 3000,
   threshold: 90,
   alertCooldownMs: 30 * 1000,
-  emailApiUrl: "",
-  emailApiKey: "",
-  emailType: "noise-alert",
-  defaultAlertEmail: "",
 };
 
 const envConfig = window.CYBERPULSE_CONFIG || {};
@@ -32,7 +28,6 @@ function createRule(seed = {}) {
     id: seed.id || `rule-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     name: seed.name || "Noise Alert",
     enabled: seed.enabled ?? true,
-    email: seed.email ?? config.defaultAlertEmail,
     threshold: Number(seed.threshold ?? config.threshold),
     cooldownMs: Number(seed.cooldownMs ?? config.alertCooldownMs),
     quietEnabled: seed.quietEnabled ?? false,
@@ -49,11 +44,9 @@ function loadRules() {
   }
 
   const legacyThreshold = Number(localStorage.getItem("dbThreshold") || config.threshold);
-  const legacyEmail = localStorage.getItem("alertEmail") || config.defaultAlertEmail;
   return [
     createRule({
       name: "Primary Alert",
-      email: legacyEmail,
       threshold: legacyThreshold,
       cooldownMs: config.alertCooldownMs,
     }),
@@ -331,79 +324,6 @@ function triggerRuleAlert(reading, rule, activeThreshold) {
   );
 }
 
-function normalizeEmailServiceError(result, status) {
-  if (result?.ok !== false) return result;
-
-  const code = String(result.error || result.code || "").toLowerCase();
-  if (status === 401 || code.includes("unauthorized") || code.includes("invalid_api_key")) {
-    return { ...result, error: "unauthorized", status };
-  }
-  if (code.includes("spam")) {
-    return { ...result, error: "spam_detected", status };
-  }
-  if (code.includes("queue") && code.includes("full")) {
-    return { ...result, error: "queue_full", status };
-  }
-
-  return { ...result, status };
-}
-
-async function sendRuleEmailNotification(reading, rule, activeThreshold) {
-  const to = String(rule.email || "").trim();
-  if (!to) {
-    showToast("Email Missing", `${rule.name}: set an alert email for this rule.`);
-    return;
-  }
-
-  if (!config.emailApiUrl || !config.emailApiKey) {
-    showToast("Email Config Missing", "Set emailApiUrl and emailApiKey in CYBERPULSE_CONFIG.");
-    return;
-  }
-
-  const response = await fetch(`${config.emailApiUrl}/send`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.emailApiKey}`,
-    },
-    body: JSON.stringify({
-      to,
-      subject: `Noise alert: ${Number(reading.decibel).toFixed(1)} dB exceeded ${activeThreshold} dB`,
-      type: config.emailType,
-      data: {
-        ruleId: rule.id,
-        ruleName: rule.name,
-        decibel: Number(reading.decibel),
-        threshold: activeThreshold,
-        quietHoursActive: isNowInQuietHours(rule),
-        createdAt: reading.created_at,
-      },
-    }),
-  });
-
-  const result = await response.json().catch(() => ({ ok: false, error: "invalid_response_format" }));
-  const normalized = normalizeEmailServiceError(result, response.status);
-
-  if (normalized?.ok === false) {
-    if (normalized.error === "unauthorized") {
-      showToast("Email Unauthorized", "EmailSender rejected API key.");
-      return;
-    }
-    if (normalized.error === "spam_detected") {
-      showToast("Email Blocked", `${rule.name}: email marked as spam.`);
-      return;
-    }
-    if (normalized.error === "queue_full") {
-      showToast("Email Queue Full", `${rule.name}: try again in a moment.`);
-      return;
-    }
-    showToast("Email Failed", `${rule.name}: ${normalized.error || "unknown error"}`);
-    return;
-  }
-
-  showToast("Email Sent", `${rule.name}: sent to ${to}.`);
-}
-
 function updateRuleFromInput(event) {
   const { ruleId, field } = event.target.dataset;
   const rule = settings.rules.find((item) => item.id === ruleId);
@@ -419,10 +339,6 @@ function updateRuleFromInput(event) {
 
   persistRules();
   updateSummary();
-
-  if (field === "quietEnabled" || field === "name") {
-    renderRules();
-  }
 }
 
 function renderRules() {
@@ -442,10 +358,6 @@ function renderRules() {
           <input type="text" data-field="name" data-rule-id="${rule.id}" value="${rule.name}" />
         </label>
         <label>
-          Alert email
-          <input type="email" data-field="email" data-rule-id="${rule.id}" value="${rule.email || ""}" placeholder="ops@example.com" />
-        </label>
-        <label>
           Threshold (dB)
           <input type="number" min="1" max="180" data-field="threshold" data-rule-id="${rule.id}" value="${rule.threshold}" />
         </label>
@@ -457,20 +369,18 @@ function renderRules() {
           Quiet hours enabled
           <input type="checkbox" data-field="quietEnabled" data-rule-id="${rule.id}" ${rule.quietEnabled ? "checked" : ""} />
         </label>
-        <div class="quiet-fields ${rule.quietEnabled ? "" : "hidden"}">
-          <label>
-            Quiet start
-            <input type="time" data-field="quietStart" data-rule-id="${rule.id}" value="${rule.quietStart}" />
-          </label>
-          <label>
-            Quiet end
-            <input type="time" data-field="quietEnd" data-rule-id="${rule.id}" value="${rule.quietEnd}" />
-          </label>
-          <label>
-            Quiet threshold (dB)
-            <input type="number" min="1" max="180" data-field="quietThreshold" data-rule-id="${rule.id}" value="${rule.quietThreshold}" />
-          </label>
-        </div>
+        <label>
+          Quiet start
+          <input type="time" data-field="quietStart" data-rule-id="${rule.id}" value="${rule.quietStart}" />
+        </label>
+        <label>
+          Quiet end
+          <input type="time" data-field="quietEnd" data-rule-id="${rule.id}" value="${rule.quietEnd}" />
+        </label>
+        <label>
+          Quiet threshold (dB)
+          <input type="number" min="1" max="180" data-field="quietThreshold" data-rule-id="${rule.id}" value="${rule.quietThreshold}" />
+        </label>
         <label>
           Rule enabled
           <input type="checkbox" data-field="enabled" data-rule-id="${rule.id}" ${rule.enabled ? "checked" : ""} />
@@ -510,7 +420,6 @@ async function handleIncomingReading(reading) {
     }
 
     triggerRuleAlert(reading, rule, activeThreshold);
-    await sendRuleEmailNotification(reading, rule, activeThreshold);
     ruleLastAlertTimestamps[rule.id] = now;
   }
 }
