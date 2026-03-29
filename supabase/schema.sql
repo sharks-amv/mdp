@@ -12,12 +12,4 @@ create policy "Allow anon read access for dashboard"
   to anon
   using (true);
 
--- Example edge function payload for email alerts
--- Name your function: send-noise-alert
--- Body expected by app.js:
--- {
---   "email": "ops@example.com",
---   "decibel": 96.2,
---   "created_at": "2026-03-11T05:53:44.000Z",
---   "threshold": 90
--- }
+-- App consumes rows from this table for realtime/polling dashboards and local alerts.

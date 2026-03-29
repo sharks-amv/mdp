@@ -145,6 +145,54 @@ h2 {
   align-items: end;
 }
 
+.rules-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.8rem;
+}
+
+.tight {
+  margin: 0;
+}
+
+.rules-container {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.rule-card {
+  border: 1px solid rgba(143, 161, 196, 0.35);
+  border-radius: 12px;
+  padding: 0.8rem;
+  background: rgba(5, 7, 18, 0.6);
+}
+
+.rule-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.7rem;
+  align-items: end;
+}
+
+.rule-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.rule-title {
+  font-weight: 600;
+  color: var(--cyan);
+}
+
+.rule-delete {
+  background: rgba(255, 77, 109, 0.2);
+  border: 1px solid rgba(255, 77, 109, 0.5);
+}
+
 label {
   color: var(--muted);
   font-size: 0.86rem;
