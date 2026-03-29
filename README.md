@@ -32,34 +32,6 @@ A cyberpunk-style dashboard that reads live decibel values from Supabase and sho
 
 Then open `index.html` from any static server.
 
-## External email microservice integration
-The project includes a reusable Node client for an external email API in `services/emailClient.js`.
-
-### Environment
-Create `.env.local`:
-
-```env
-EMAIL_API_URL=https://your-emailsender-url
-EMAIL_API_KEY=your_api_key
-```
-
-### Client
-```js
-const { sendEmail, getLogs, getStatus, safeSend } = require("./services/emailClient");
-```
-
-### Usage example
-```js
-const { sendEmail } = require("./services/emailClient");
-
-await sendEmail({
-  to: "ops@example.com",
-  subject: "Noise alert",
-  type: "noise-alert",
-  data: { decibel: 96.2, threshold: 90 },
-});
-```
-
 ## Multi-rule + quiet hours
 Use the Alert Controls panel to define multiple alert rules. Each rule supports:
 - Name
