@@ -4,11 +4,7 @@ const defaultConfig = {
   table: "sound",
   pollIntervalMs: 3000,
   threshold: 90,
-  email: "",
-  emailCooldownMs: 5 * 60 * 1000,
-  alertWebhookUrl: "",
-  useMailtoFallback: true,
-  queueFailedAlerts: true,
+  alertCooldownMs: 30 * 1000,
 };
 
 const envConfig = window.CYBERPULSE_CONFIG || {};
@@ -33,8 +29,7 @@ function createRule(seed = {}) {
     name: seed.name || "Noise Alert",
     enabled: seed.enabled ?? true,
     threshold: Number(seed.threshold ?? config.threshold),
-    email: seed.email ?? config.email,
-    cooldownMs: Number(seed.cooldownMs ?? config.emailCooldownMs),
+    cooldownMs: Number(seed.cooldownMs ?? config.alertCooldownMs),
     quietEnabled: seed.quietEnabled ?? false,
     quietStart: seed.quietStart || "22:00",
     quietEnd: seed.quietEnd || "07:00",
@@ -49,13 +44,11 @@ function loadRules() {
   }
 
   const legacyThreshold = Number(localStorage.getItem("dbThreshold") || config.threshold);
-  const legacyEmail = localStorage.getItem("alertEmail") || config.email;
   return [
     createRule({
       name: "Primary Alert",
       threshold: legacyThreshold,
-      email: legacyEmail,
-      cooldownMs: config.emailCooldownMs,
+      cooldownMs: config.alertCooldownMs,
     }),
   ];
 }
@@ -71,12 +64,6 @@ const ruleLastAlertTimestamps = {};
 let lastProcessedReadingId = null;
 let animatedGaugeValue = null;
 let gaugeAnimationFrame = null;
-
-function getDisplayThreshold() {
-  const enabledRules = settings.rules.filter((rule) => rule.enabled);
-  if (!enabledRules.length) return Number(config.threshold);
-  return Math.min(...enabledRules.map((rule) => Number(rule.threshold || config.threshold)));
-}
 
 function getDisplayThreshold() {
   const enabledRules = settings.rules.filter((rule) => rule.enabled);
@@ -330,134 +317,11 @@ function getRuleActiveThreshold(rule, now = new Date()) {
   return Number(rule.threshold);
 }
 
-function buildAlertPayload(reading, rule, activeThreshold) {
-  return {
-    email: rule.email,
-    decibel: Number(reading.decibel),
-    created_at: reading.created_at,
-    threshold: activeThreshold,
-    rule_id: rule.id,
-    rule_name: rule.name,
-    quiet_hours_active: isNowInQuietHours(rule),
-    source: "cyberpulse-dashboard",
-  };
-}
-
-async function sendEmailThroughEdge(payload) {
-  const { error } = await window.supabaseClient.functions.invoke("send-noise-alert", {
-    body: payload,
-  });
-
-  if (error) throw error;
-}
-
-async function sendEmailThroughWebhook(payload) {
-  if (!config.alertWebhookUrl) {
-    throw new Error("No alertWebhookUrl configured");
-  }
-
-  const response = await fetch(config.alertWebhookUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Webhook request failed (${response.status})`);
-  }
-}
-
-function buildAlertMessage(payload) {
-  return `CyberPulse Noise Alert
-
-Decibel: ${payload.decibel.toFixed(1)} dB
-Threshold: ${payload.threshold} dB
-Time: ${payload.created_at}`;
-}
-
-function queueFailedAlert(payload) {
-  if (!config.queueFailedAlerts) return;
-
-  const key = "failedAlertQueue";
-  const queue = JSON.parse(localStorage.getItem(key) || "[]");
-  queue.unshift({ ...payload, queued_at: new Date().toISOString() });
-  localStorage.setItem(key, JSON.stringify(queue.slice(0, 100)));
-}
-
-async function copyAlertToClipboard(payload) {
-  const msg = buildAlertMessage(payload);
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(msg);
-    return true;
-  }
-  return false;
-}
-
-function downloadEmlFallback(payload) {
-  const subject = `Noise alert: ${payload.decibel.toFixed(1)} dB exceeded threshold`;
-  const eml = [
-    `To: ${payload.email}`,
-    `Subject: ${subject}`,
-    "MIME-Version: 1.0",
-    "Content-Type: text/plain; charset=utf-8",
-    "",
-    buildAlertMessage(payload),
-  ].join("\n");
-
-  const blob = new Blob([eml], { type: "message/rfc822" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `cyberpulse-alert-${Date.now()}.eml`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function openMailtoFallback(payload) {
-  const subject = encodeURIComponent(`Noise alert: ${payload.decibel.toFixed(1)} dB exceeded threshold`);
-  const body = encodeURIComponent(buildAlertMessage(payload));
-  window.open(`mailto:${payload.email}?subject=${subject}&body=${body}`, "_blank");
-}
-
-async function sendEmailAlert(reading, rule, activeThreshold) {
-  if (!rule.email) return false;
-
-  const payload = buildAlertPayload(reading, rule, activeThreshold);
-
-  try {
-    await sendEmailThroughEdge(payload);
-    showToast("Email Sent", `${rule.name}: alert sent to ${rule.email} via Edge Function.`);
-    return true;
-  } catch (edgeErr) {
-    console.warn("Edge function email failed, trying workaround", edgeErr);
-  }
-
-  try {
-    await sendEmailThroughWebhook(payload);
-    showToast("Webhook Alert Sent", `${rule.name}: webhook alert sent to ${rule.email}.`);
-    return true;
-  } catch (webhookErr) {
-    console.warn("Webhook email fallback failed", webhookErr);
-  }
-
-  queueFailedAlert(payload);
-
-  try {
-    const copied = await copyAlertToClipboard(payload);
-    if (copied) {
-      showToast("Copied Alert", "Edge/webhook failed. Alert text copied to clipboard.");
-    }
-  } catch (clipboardErr) {
-    console.warn("Clipboard fallback failed", clipboardErr);
-  }
-
-  if (config.useMailtoFallback) {
-    openMailtoFallback(payload);
-  }
-
-  downloadEmlFallback(payload);
-  showToast("Fallback Created", "Edge/webhook failed. Downloaded .eml + queued alert locally.");
-  return true;
+function triggerRuleAlert(reading, rule, activeThreshold) {
+  showToast(
+    "Noise Threshold Exceeded",
+    `${rule.name}: ${Number(reading.decibel).toFixed(1)} dB crossed ${activeThreshold} dB${isNowInQuietHours(rule) ? " (quiet hours)" : ""}.`
+  );
 }
 
 function updateRuleFromInput(event) {
@@ -492,10 +356,6 @@ function renderRules() {
         <label>
           Rule name
           <input type="text" data-field="name" data-rule-id="${rule.id}" value="${rule.name}" />
-        </label>
-        <label>
-          Alert email
-          <input type="email" data-field="email" data-rule-id="${rule.id}" value="${rule.email || ""}" placeholder="ops@example.com" />
         </label>
         <label>
           Threshold (dB)
@@ -553,21 +413,14 @@ async function handleIncomingReading(reading) {
     const activeThreshold = getRuleActiveThreshold(rule);
     if (Number(reading.decibel) < activeThreshold) continue;
 
-    showToast(
-      "Noise Threshold Exceeded",
-      `${rule.name}: ${Number(reading.decibel).toFixed(1)} dB crossed ${activeThreshold} dB${isNowInQuietHours(rule) ? " (quiet hours)" : ""}.`
-    );
-
     const now = Date.now();
     const lastRuleAlertTimestamp = Number(ruleLastAlertTimestamps[rule.id] || 0);
-    if (now - lastRuleAlertTimestamp <= Number(rule.cooldownMs || config.emailCooldownMs)) {
+    if (now - lastRuleAlertTimestamp <= Number(rule.cooldownMs || config.alertCooldownMs)) {
       continue;
     }
 
-    const notificationSent = await sendEmailAlert(reading, rule, activeThreshold);
-    if (notificationSent) {
-      ruleLastAlertTimestamps[rule.id] = now;
-    }
+    triggerRuleAlert(reading, rule, activeThreshold);
+    ruleLastAlertTimestamps[rule.id] = now;
   }
 }
 
