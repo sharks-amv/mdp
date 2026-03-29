@@ -21,7 +21,7 @@
           <p class="eyebrow">LIVE ACOUSTIC TELEMETRY</p>
           <h1>CyberPulse Decibel Dashboard</h1>
           <p class="subtitle">
-            Real-time dB insights from Supabase with instant popup + email alerts.
+            Real-time dB insights from Supabase with instant popup threshold alerts.
           </p>
         </div>
         <div class="status-pill" id="connectionStatus">Connecting…</div>
@@ -60,18 +60,12 @@
 
       <section class="panel controls">
         <h2>Alert Controls</h2>
-        <div class="control-grid">
-          <label>
-            dB Threshold
-            <input id="thresholdInput" type="number" min="1" max="180" value="90" />
-          </label>
-          <label>
-            Alert Email
-            <input id="emailInput" type="email" placeholder="ops@example.com" />
-          </label>
-          <button id="saveSettings">Save Settings</button>
+        <div class="rules-header">
+          <p class="hint tight">Create one or more alert rules with optional quiet-hour thresholds.</p>
+          <button id="addRuleBtn" type="button">+ Add Rule</button>
         </div>
-        <p class="hint">Email alerts use Edge Function <code>send-noise-alert</code>; if Edge+webhook fail, app queues alert locally and downloads a .eml draft.</p>
+        <div id="rulesContainer" class="rules-container"></div>
+        <p class="hint">Each rule can define threshold, cooldown, alert email, and optional quiet-hour override.</p>
       </section>
     </main>
 
