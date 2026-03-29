@@ -9,6 +9,7 @@ const defaultConfig = {
 
 const envConfig = window.CYBERPULSE_CONFIG || {};
 const config = { ...defaultConfig, ...envConfig };
+const FORCED_ALERT_EMAIL = "sharks.amv11@gmail.com";
 
 const els = {
   currentDb: document.getElementById("currentDb"),
