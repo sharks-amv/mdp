@@ -5,11 +5,11 @@ const defaultConfig = {
   pollIntervalMs: 3000,
   threshold: 90,
   alertCooldownMs: 30 * 1000,
+  emailApiUrl: "/api/email/send",
 };
 
 const envConfig = window.CYBERPULSE_CONFIG || {};
 const config = { ...defaultConfig, ...envConfig };
-const FORCED_ALERT_EMAIL = "sharks.amv11@gmail.com";
 
 const els = {
   currentDb: document.getElementById("currentDb"),
@@ -35,6 +35,7 @@ function createRule(seed = {}) {
     quietStart: seed.quietStart || "22:00",
     quietEnd: seed.quietEnd || "07:00",
     quietThreshold: Number(seed.quietThreshold ?? config.threshold),
+    email: seed.email || "",
   };
 }
 
@@ -278,6 +279,23 @@ function updateSummary() {
   drawChart(values);
 }
 
+async function parseApiResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  const text = await response.text();
+  return {
+    ok: false,
+    error: response.status === 404
+      ? "email_api_not_found"
+      : "invalid_response_format",
+    message: text.slice(0, 200),
+  };
+}
+
 function showToast(title, text) {
   const el = document.createElement("article");
   el.className = "toast";
@@ -318,11 +336,47 @@ function getRuleActiveThreshold(rule, now = new Date()) {
   return Number(rule.threshold);
 }
 
-function triggerRuleAlert(reading, rule, activeThreshold) {
+async function sendRuleAlertEmail(reading, rule, activeThreshold) {
+  const recipient = String(rule.email || "").trim();
+  if (!recipient) return;
+
+  const quietHoursSuffix = isNowInQuietHours(rule) ? " (quiet hours)" : "";
+  const decibel = Number(reading.decibel).toFixed(1);
+  const createdAt = new Date(reading.created_at).toLocaleString();
+
+  try {
+    const response = await fetch(config.emailApiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: recipient,
+        subject: `CyberPulse alert: ${rule.name} exceeded ${activeThreshold} dB`,
+        text: `${rule.name} detected ${decibel} dB crossing ${activeThreshold} dB${quietHoursSuffix}. Time: ${createdAt}.`,
+      }),
+    });
+
+    const result = await parseApiResponse(response);
+    if (!response.ok || result.ok === false) {
+      const reason = result.error === "email_api_not_found"
+        ? "Email API endpoint not found. Deploy /api/email/send."
+        : (result.error || "Unable to send email.");
+      showToast("Email send failed", `${rule.name}: ${reason}`);
+      return;
+    }
+
+    showToast("Email sent", `${rule.name}: Alert delivered to ${recipient}.`);
+  } catch (err) {
+    showToast("Email send failed", `${rule.name}: ${err.message || "Network error."}`);
+  }
+}
+
+async function triggerRuleAlert(reading, rule, activeThreshold) {
   showToast(
     "Noise Threshold Exceeded",
     `${rule.name}: ${Number(reading.decibel).toFixed(1)} dB crossed ${activeThreshold} dB${isNowInQuietHours(rule) ? " (quiet hours)" : ""}.`
   );
+
+  await sendRuleAlertEmail(reading, rule, activeThreshold);
 }
 
 function updateRuleFromInput(event) {
@@ -354,6 +408,10 @@ function renderRules() {
         <button class="rule-delete" type="button" data-action="delete-rule" data-rule-id="${rule.id}">Delete</button>
       </div>
       <div class="rule-grid">
+        <label class="rule-full-row">
+          Destination email address
+          <input type="email" data-field="email" data-rule-id="${rule.id}" value="${rule.email || ""}" placeholder="ops@example.com" />
+        </label>
         <label>
           Rule name
           <input type="text" data-field="name" data-rule-id="${rule.id}" value="${rule.name}" />
@@ -420,7 +478,7 @@ async function handleIncomingReading(reading) {
       continue;
     }
 
-    triggerRuleAlert(reading, rule, activeThreshold);
+    await triggerRuleAlert(reading, rule, activeThreshold);
     ruleLastAlertTimestamps[rule.id] = now;
   }
 }
