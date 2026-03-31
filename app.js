@@ -9,7 +9,6 @@ const defaultConfig = {
 
 const envConfig = window.CYBERPULSE_CONFIG || {};
 const config = { ...defaultConfig, ...envConfig };
-const FORCED_ALERT_EMAIL = "sharks.amv11@gmail.com";
 
 const els = {
   currentDb: document.getElementById("currentDb"),
@@ -35,6 +34,7 @@ function createRule(seed = {}) {
     quietStart: seed.quietStart || "22:00",
     quietEnd: seed.quietEnd || "07:00",
     quietThreshold: Number(seed.quietThreshold ?? config.threshold),
+    email: seed.email || "",
   };
 }
 
@@ -318,11 +318,44 @@ function getRuleActiveThreshold(rule, now = new Date()) {
   return Number(rule.threshold);
 }
 
-function triggerRuleAlert(reading, rule, activeThreshold) {
+async function sendRuleAlertEmail(reading, rule, activeThreshold) {
+  const recipient = String(rule.email || "").trim();
+  if (!recipient) return;
+
+  const quietHoursSuffix = isNowInQuietHours(rule) ? " (quiet hours)" : "";
+  const decibel = Number(reading.decibel).toFixed(1);
+  const createdAt = new Date(reading.created_at).toLocaleString();
+
+  try {
+    const response = await fetch("/api/email/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: recipient,
+        subject: `CyberPulse alert: ${rule.name} exceeded ${activeThreshold} dB`,
+        text: `${rule.name} detected ${decibel} dB crossing ${activeThreshold} dB${quietHoursSuffix}. Time: ${createdAt}.`,
+      }),
+    });
+
+    const result = await response.json();
+    if (!response.ok || result.ok === false) {
+      showToast("Email send failed", `${rule.name}: ${result.error || "Unable to send email."}`);
+      return;
+    }
+
+    showToast("Email sent", `${rule.name}: Alert delivered to ${recipient}.`);
+  } catch (err) {
+    showToast("Email send failed", `${rule.name}: ${err.message || "Network error."}`);
+  }
+}
+
+async function triggerRuleAlert(reading, rule, activeThreshold) {
   showToast(
     "Noise Threshold Exceeded",
     `${rule.name}: ${Number(reading.decibel).toFixed(1)} dB crossed ${activeThreshold} dB${isNowInQuietHours(rule) ? " (quiet hours)" : ""}.`
   );
+
+  await sendRuleAlertEmail(reading, rule, activeThreshold);
 }
 
 function updateRuleFromInput(event) {
@@ -383,6 +416,10 @@ function renderRules() {
           <input type="number" min="1" max="180" data-field="quietThreshold" data-rule-id="${rule.id}" value="${rule.quietThreshold}" />
         </label>
         <label>
+          Alert email
+          <input type="email" data-field="email" data-rule-id="${rule.id}" value="${rule.email || ""}" placeholder="ops@example.com" />
+        </label>
+        <label>
           Rule enabled
           <input type="checkbox" data-field="enabled" data-rule-id="${rule.id}" ${rule.enabled ? "checked" : ""} />
         </label>
@@ -420,7 +457,7 @@ async function handleIncomingReading(reading) {
       continue;
     }
 
-    triggerRuleAlert(reading, rule, activeThreshold);
+    await triggerRuleAlert(reading, rule, activeThreshold);
     ruleLastAlertTimestamps[rule.id] = now;
   }
 }
