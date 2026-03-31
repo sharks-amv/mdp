@@ -5,6 +5,7 @@ const defaultConfig = {
   pollIntervalMs: 3000,
   threshold: 90,
   alertCooldownMs: 30 * 1000,
+  emailApiUrl: "/api/email/send",
 };
 
 const envConfig = window.CYBERPULSE_CONFIG || {};
@@ -276,6 +277,23 @@ function updateSummary() {
   els.peakDb.textContent = `${peak.toFixed(1)} dB`;
   animateGaugeTo(current);
   drawChart(values);
+}
+
+async function parseApiResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  const text = await response.text();
+  return {
+    ok: false,
+    error: response.status === 404
+      ? "email_api_not_found"
+      : "invalid_response_format",
+    message: text.slice(0, 200),
+  };
 }
 
 function showToast(title, text) {
