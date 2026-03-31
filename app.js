@@ -420,6 +420,10 @@ function renderRules() {
           <input type="number" min="1" max="180" data-field="quietThreshold" data-rule-id="${rule.id}" value="${rule.quietThreshold}" />
         </label>
         <label>
+          Alert email
+          <input type="email" data-field="email" data-rule-id="${rule.id}" value="${rule.email || ""}" placeholder="ops@example.com" />
+        </label>
+        <label>
           Rule enabled
           <input type="checkbox" data-field="enabled" data-rule-id="${rule.id}" ${rule.enabled ? "checked" : ""} />
         </label>
