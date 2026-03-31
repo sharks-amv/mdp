@@ -1,7 +1,8 @@
 const http = require("node:http");
-const { safeSend } = require("./services/emailClient");
 
 const PORT = Number(process.env.PORT || 8787);
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "re_aJNYFU4z_L3HGSzQJZi4PUksWYVzM8hFi";
+const RESEND_FROM = process.env.RESEND_FROM || "CyberPulse Alerts <onboarding@resend.dev>";
 
 function sendJson(res, status, payload) {
   res.writeHead(status, {
@@ -29,16 +30,58 @@ function readBody(req) {
   });
 }
 
+async function sendResendEmail({ to, subject, text, html }) {
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: RESEND_FROM,
+      to: [to],
+      subject,
+      text,
+      html,
+    }),
+  });
+
+  const contentType = response.headers.get("content-type") || "";
+  const payload = contentType.includes("application/json")
+    ? await response.json()
+    : { message: await response.text() };
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: payload?.message || payload?.error || "resend_error",
+      details: payload,
+    };
+  }
+
+  return { ok: true, id: payload.id };
+}
+
 async function handleEmailSend(req, res) {
   try {
-    const payload = await readBody(req);
-    const result = await safeSend(payload);
+    const body = await readBody(req);
+    const to = String(body.to || "").trim();
+    const subject = String(body.subject || "").trim();
+    const text = String(body.text || "").trim();
+    const html = String(body.html || "").trim();
 
-    if (result?.ok === false) {
-      if (result.error === "unauthorized") return sendJson(res, 401, result);
-      if (result.error === "spam_detected") return sendJson(res, 429, result);
-      if (result.error === "queue_full") return sendJson(res, 503, result);
-      return sendJson(res, 400, result);
+    if (!to || !subject || (!text && !html)) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: "validation_error",
+        message: "Fields required: to, subject, and text or html",
+      });
+    }
+
+    const result = await sendResendEmail({ to, subject, text, html });
+    if (!result.ok) {
+      return sendJson(res, result.status || 502, result);
     }
 
     return sendJson(res, 200, result);
@@ -46,6 +89,7 @@ async function handleEmailSend(req, res) {
     if (err.message === "invalid_json") {
       return sendJson(res, 400, { ok: false, error: "invalid_json" });
     }
+
     return sendJson(res, 500, { ok: false, error: err.message || "server_error" });
   }
 }
@@ -63,5 +107,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Email proxy server running on http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });
