@@ -9,7 +9,7 @@ function sendJson(res, status, payload) {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Methods": "POST,OPTIONS",
+    "Access-Control-Allow-Methods": "OPTIONS",
   });
   res.end(JSON.stringify(payload));
 }
@@ -97,10 +97,6 @@ async function handleEmailSend(req, res) {
 const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
     return sendJson(res, 204, {});
-  }
-
-  if (req.method === "POST" && req.url === "/api/email/send") {
-    return handleEmailSend(req, res);
   }
 
   return sendJson(res, 404, { ok: false, error: "not_found" });

@@ -345,7 +345,7 @@ async function sendRuleAlertEmail(reading, rule, activeThreshold) {
   const createdAt = new Date(reading.created_at).toLocaleString();
 
   try {
-    const response = await fetch(config.emailApiUrl, {
+    const response = await fetch("/api/email/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -355,12 +355,9 @@ async function sendRuleAlertEmail(reading, rule, activeThreshold) {
       }),
     });
 
-    const result = await parseApiResponse(response);
+    const result = await response.json();
     if (!response.ok || result.ok === false) {
-      const reason = result.error === "email_api_not_found"
-        ? "Email API endpoint not found. Deploy /api/email/send."
-        : (result.error || "Unable to send email.");
-      showToast("Email send failed", `${rule.name}: ${reason}`);
+      showToast("Email send failed", `${rule.name}: ${result.error || "Unable to send email."}`);
       return;
     }
 
@@ -439,6 +436,10 @@ function renderRules() {
         <label>
           Quiet threshold (dB)
           <input type="number" min="1" max="180" data-field="quietThreshold" data-rule-id="${rule.id}" value="${rule.quietThreshold}" />
+        </label>
+        <label>
+          Alert email
+          <input type="email" data-field="email" data-rule-id="${rule.id}" value="${rule.email || ""}" placeholder="ops@example.com" />
         </label>
         <label>
           Rule enabled
