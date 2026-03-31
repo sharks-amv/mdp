@@ -387,6 +387,10 @@ function renderRules() {
         <button class="rule-delete" type="button" data-action="delete-rule" data-rule-id="${rule.id}">Delete</button>
       </div>
       <div class="rule-grid">
+        <label class="rule-full-row">
+          Destination email address
+          <input type="email" data-field="email" data-rule-id="${rule.id}" value="${rule.email || ""}" placeholder="ops@example.com" />
+        </label>
         <label>
           Rule name
           <input type="text" data-field="name" data-rule-id="${rule.id}" value="${rule.name}" />

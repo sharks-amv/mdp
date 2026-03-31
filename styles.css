@@ -183,6 +183,10 @@ h2 {
   margin-bottom: 0.5rem;
 }
 
+.rule-full-row {
+  grid-column: 1 / -1;
+}
+
 .rule-title {
   font-weight: 600;
   color: var(--cyan);
